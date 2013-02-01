@@ -34,14 +34,34 @@ static void *xfb = NULL;
 static GXRModeObj *rmode = NULL;
 
 
+void printerror()
+{
+	uint32_t err = 0;
+	int crapo = DI_GetError(&err);
+	if (crapo < 0) printf("ERROR WHILE GETTING ERROR -- %d\n", crapo);
+	else if (err != 0) printf("DI_GetError: %d\n", err);
+	else printf("DI_GetError: everything is okay\n");
+}
+
 bool initdisc() 
 {
 	if (!fatMountSimple("sd", &__io_wiisd)) return false;
 	printf("SD mounted\n");
 	
     DI_Mount();
-	printf("DImount\n");
-    while (DI_GetStatus() & DVD_INIT) usleep(5000);
+	printf("DImounted\n");
+	printerror();
+	int oldstatus = -1;
+	int status;
+    while ((status = DI_GetStatus()) & DVD_INIT) 
+	{
+		if (oldstatus != status)
+		{
+			printf("DI STATUS CHANGE %02X -> %02X\n", oldstatus, status);
+			oldstatus = status;
+		}
+		usleep(5000);
+	}
 	printf("good\n");
     if (DI_GetStatus() & DVD_READY) return FST_Mount();
 	printf("blarg\n");
@@ -70,7 +90,8 @@ void startdump(int what)
 
 int main(int argc, char **argv) 
 {
-	DI_Init();
+	DI_LoadDVDX(false);
+	int lolz = DI_Init();
 	VIDEO_Init();
 	WPAD_Init();
 
@@ -85,6 +106,8 @@ int main(int argc, char **argv)
 	if(rmode->viTVMode&VI_NON_INTERLACE) VIDEO_WaitVSync();
 
 	printf("\x1b[2;0H");
+	printf("DI_Init() -> %d\n", lolz);
+	printerror();
 	
 	if (!fatInitDefault()) 
 	{
