@@ -32,66 +32,125 @@
 
 static void *xfb = NULL;
 static GXRModeObj *rmode = NULL;
+int alreadymounted = 0;
+int outmedia = -1;
 
-
-void printerror()
-{
-	uint32_t err = 0;
-	int crapo = DI_GetError(&err);
-	if (crapo < 0) printf("ERROR WHILE GETTING ERROR -- %d\n", crapo);
-	else if (err != 0) printf("DI_GetError: %d\n", err);
-	else printf("DI_GetError: everything is okay\n");
-}
 
 bool initdisc() 
 {
-	if (!fatMountSimple("sd", &__io_wiisd)) return false;
-	printf("SD mounted\n");
+	if (alreadymounted) return true;
 	
     DI_Mount();
-	printf("DImounted\n");
-	printerror();
-	int oldstatus = -1;
-	int status;
-    while ((status = DI_GetStatus()) & DVD_INIT) 
-	{
-		if (oldstatus != status)
-		{
-			printf("DI STATUS CHANGE %02X -> %02X\n", oldstatus, status);
-			oldstatus = status;
-		}
+	printf("Insert your disc if you haven't already.\n");
+    while (DI_GetStatus() & (DVD_INIT | DVD_NO_DISC)) 
 		usleep(5000);
-	}
-	printf("good\n");
     if (DI_GetStatus() & DVD_READY) return FST_Mount();
-	printf("blarg\n");
     return false;
 }
 
 void deinitdisc()
 {
 	FST_Unmount();
-    DI_Close();
-	
-	fatUnmount("sd");
 }
 
 
-void dumpdir(char* path)
+void dumpfile(char* srcpath, char* dstpath)
 {
+	FILE* fin = fopen(srcpath, "rb");
+	fseek(fin, 0, SEEK_END);
+	int len = ftell(fin);
+	fseek(fin, 0, SEEK_SET);
+	
+	FILE* fout = fopen(dstpath, "wb");
+	
+	int curpos = 0;
+	int blocksize = 1024*1024;
+	unsigned char* block = (unsigned char*)malloc(blocksize);
+	while (curpos < len)
+	{
+		int thislen = blocksize;
+		if (curpos + thislen > len)
+			thislen = len - curpos;
+		
+		fread(block, thislen, 1, fin);
+		fwrite(block, thislen, 1, fout);
+	}
+	
+	fclose(fout);
+	fclose(fin);
+	free(block);
 }
 
-void startdump(int what)
+void dumpsubdir(char* srcpath, char* dstpath)
 {
-	int choice = 0;
+	DIR *pdir;
+	struct dirent *pent;
+	char str1[256], str2[256];
+
+	pdir = opendir(srcpath);
+	if (!pdir) return;
 	
-	// AudioRes, EuDutch, EuEnglish, EuFrench, EuGerman, EuItalian, EuSpanish, HomeButton2, LayoutData, ModuleData, MovieData, ObjectData, ParticleData, StageData,
+	mkdir(dstpath, 0777);
+
+	while ((pent = readdir(pdir)) != NULL) 
+	{
+		if(strcmp(".", pent->d_name) == 0 || strcmp("..", pent->d_name) == 0)
+			continue;
+		
+		sprintf(str1, "%s/%s", srcpath, pent->d_name);
+		sprintf(str2, "%s/%s", dstpath, pent->d_name);
+		
+		if(pent->d_type & DT_DIR)
+			dumpsubdir(str1, str2);
+		else
+			dumpfile(str1, str2);
+	}
+
+	closedir(pdir);
+}
+
+void dumpdir(char* srcpath, char* dstpath, bool hax)
+{
+	DIR *pdir;
+	struct dirent *pent;
+	char str1[256], str2[256];
+
+	pdir = opendir(srcpath);
+	if (!pdir) return;
+	
+	printf("%s\n", srcpath);
+	
+	sprintf(str2, "%s:/%s", outmedia==0 ? "sd" : "usb", dstpath);
+	mkdir(str2, 0777);
+
+	while ((pent = readdir(pdir)) != NULL) 
+	{
+		if(strcmp(".", pent->d_name) == 0 || strcmp("..", pent->d_name) == 0)
+			continue;
+		
+		sprintf(str1, "%s/%s", srcpath, pent->d_name);
+		sprintf(str2, "%s:/%s/%s", outmedia==0 ? "sd" : "usb", dstpath, pent->d_name);
+		
+		if(pent->d_type & DT_DIR)
+		{
+			if (hax)
+			{
+				sprintf(str2, "%s/%s", dstpath, pent->d_name);
+				dumpdir(str1, str2, false);
+			}
+			else
+				dumpsubdir(str1, str2);
+		}
+		else
+			dumpfile(str1, str2);
+	}
+
+	closedir(pdir);
 }
 
 int main(int argc, char **argv) 
 {
-	DI_LoadDVDX(false);
-	int lolz = DI_Init();
+	int diinit = DI_Init();
 	VIDEO_Init();
 	WPAD_Init();
 
@@ -106,60 +165,87 @@ int main(int argc, char **argv)
 	if(rmode->viTVMode&VI_NON_INTERLACE) VIDEO_WaitVSync();
 
 	printf("\x1b[2;0H");
-	printf("DI_Init() -> %d\n", lolz);
-	printerror();
+	if (diinit < 0)
+	{
+		printf("DI_Init() failed: %d\n", diinit);
+		goto error;
+	}
 	
 	if (!fatInitDefault()) 
 	{
-		printf("fatInitDefault failure: terminating\n");
-		return 0;
+		printf("fatInitDefault() failed: terminating\n");
+		goto error;
+	}
+	
+	if (__io_wiisd.isInserted()) outmedia = 0;
+	else if (__io_usbstorage.isInserted()) outmedia = 1;
+	
+	if (outmedia < 0)
+	{
+		printf("Failed to find appropriate output media\n");
+		goto error;
 	}
 	
 	printf("SMGExtractor v1.0 -- by Mega-Mario\n");
+	printf("* Press HOME to return to the system menu\n");
+	printf("* Press A to change the output media\n");
 	printf("* Press 1 to dump the bare minimum (ObjectData, StageData and the message data)\n");
-	printf("* Press 2 to dump everything\n");
+	printf("* Press 2 to dump all the disc's contents\n");
 	
-	printf("(this is a test and doesn't work as advertised-- just press 1 and see what happens)\n");
+	printf("\x1b[8;0H");
+	printf("Output media: %s\n", outmedia==0 ? "SD card    " : "USB storage");
 
 	while(1) 
 	{
 		WPAD_ScanPads();
 
 		u32 pressed = WPAD_ButtonsDown(0);
-		if (pressed & WPAD_BUTTON_HOME) exit(0);
+		if (pressed & WPAD_BUTTON_HOME)
+		{
+			deinitdisc();
+			DI_Close();
+			exit(0);
+			return 0;
+		}
+		
 		if (pressed & WPAD_BUTTON_1)
 		{
-			printf("going to init the disc...\n");
-			if (!initdisc()) { printf("oops, failed\n"); continue; }
-			printf("inited!\n");
-			
-			DIR *pdir;
-			struct dirent *pent;
-			struct stat statbuf;
-
-			pdir=opendir("fst:/1/StageData");
-
-			if (!pdir){
-				printf ("opendir() failure; terminating\n");
+			if (!initdisc())
+			{
+				printf("Failed to mount the disc\n");
 				goto error;
 			}
-
-			while ((pent=readdir(pdir))!=NULL) {
-				stat(pent->d_name,&statbuf);
-				if(strcmp(".", pent->d_name) == 0 || strcmp("..", pent->d_name) == 0)
-					continue;
-				if(S_ISDIR(statbuf.st_mode))
-					printf("%s <dir>\n", pent->d_name);
-				if(!(S_ISDIR(statbuf.st_mode)))
-					printf("%s %lld\n", pent->d_name, statbuf.st_size);
-			}
-			closedir(pdir);
 			
-			deinitdisc();
+			char str[256];
+			sprintf(str, "%s:/SMGFiles", outmedia==0 ? "sd" : "usb");
+			mkdir(str, 0777);
+			
+			dumpdir("fst:/1/ObjectData", "SMGFiles/ObjectData", false);
+			dumpdir("fst:/1/StageData", "SMGFiles/StageData", false);
+			dumpdir("fst:/1/LocalizeData", "SMGFiles/LocalizeData", false);
+			dumpdir("fst:/1/EuDutch", "SMGFiles/EuDutch", false);
+			dumpdir("fst:/1/EuEnglish", "SMGFiles/EuEnglish", false);
+			dumpdir("fst:/1/EuFrench", "SMGFiles/EuFrench", false);
+			dumpdir("fst:/1/EuGerman", "SMGFiles/EuGerman", false);
+			dumpdir("fst:/1/EuItalian", "SMGFiles/EuItalian", false);
+			dumpdir("fst:/1/EuSpanish", "SMGFiles/EuSpanish", false);
 		}
 		else if (pressed & WPAD_BUTTON_2)
 		{
-			printf("not implemented\n");
+			if (!initdisc())
+			{
+				printf("Failed to mount the disc\n");
+				goto error;
+			}
+			
+			dumpdir("fst:/1", "SMGFiles", true);
+			dumpdir("fst:/1_metadata", "SMGFiles", true);
+		}
+		else if (pressed & WPAD_BUTTON_A)
+		{
+			outmedia = outmedia==0 ? 1 : 0;
+			printf("\x1b[8;0H");
+			printf("Output media: %s\n", outmedia==0 ? "SD card    " : "USB storage");
 		}
 
 		VIDEO_WaitVSync();
@@ -168,11 +254,18 @@ int main(int argc, char **argv)
 	return 0;
 	
 error:
+	printf("Press HOME to return to the system menu\n");
 	while(1) 
 	{
 		WPAD_ScanPads();
 		u32 pressed = WPAD_ButtonsDown(0);
-		if (pressed & WPAD_BUTTON_HOME) exit(0);
+		if (pressed & WPAD_BUTTON_HOME) 
+		{
+			deinitdisc();
+			DI_Close();
+			exit(0);
+			return 0;
+		}
 		VIDEO_WaitVSync();
 	}
 	
