@@ -32,8 +32,11 @@
 
 static void *xfb = NULL;
 static GXRModeObj *rmode = NULL;
-int alreadymounted = 0;
-int outmedia = -1;
+static int alreadymounted = 0;
+static int outmedia = -1;
+
+#define FILEBUF_SIZE 1024*1024
+static unsigned char filebuffer[FILEBUF_SIZE];
 
 
 bool initdisc() 
@@ -64,21 +67,19 @@ void dumpfile(char* srcpath, char* dstpath)
 	FILE* fout = fopen(dstpath, "wb");
 	
 	int curpos = 0;
-	int blocksize = 1024*1024;
-	unsigned char* block = (unsigned char*)malloc(blocksize);
 	while (curpos < len)
 	{
-		int thislen = blocksize;
+		int thislen = FILEBUF_SIZE;
 		if (curpos + thislen > len)
 			thislen = len - curpos;
 		
-		fread(block, thislen, 1, fin);
-		fwrite(block, thislen, 1, fout);
+		fread(filebuffer, thislen, 1, fin);
+		fwrite(filebuffer, thislen, 1, fout);
+		curpos += thislen;
 	}
 	
 	fclose(fout);
 	fclose(fin);
-	free(block);
 }
 
 void dumpsubdir(char* srcpath, char* dstpath)
@@ -216,9 +217,13 @@ int main(int argc, char **argv)
 				goto error;
 			}
 			
+			mkdir("sd:/loltest", 0777);
+			
 			char str[256];
 			sprintf(str, "%s:/SMGFiles", outmedia==0 ? "sd" : "usb");
 			mkdir(str, 0777);
+			
+			mkdir("sd:/durr", 0777);
 			
 			dumpdir("fst:/1/ObjectData", "SMGFiles/ObjectData", false);
 			dumpdir("fst:/1/StageData", "SMGFiles/StageData", false);
