@@ -195,7 +195,7 @@ static int _read(void *ptr, u64 offset, u32 len) {
 		last_access = gettime();
 		
 		int haveread = toread - (offset & 0x3);
-		memcpy(ptr, read_buffer + (offset & 0x3), haveread);
+		memcpy(ptr + curpos, read_buffer + (offset & 0x3), haveread);
 		
 		offset += haveread;
 		curpos += haveread;
