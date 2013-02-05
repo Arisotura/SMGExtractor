@@ -59,9 +59,8 @@ void deinitdisc()
 
 void dumpfile(char* srcpath, char* dstpath)
 {
-	//printf("\x1b[12;0H");
-	//printf("%s                                  \n", srcpath);
-	printf("%s\n", srcpath);
+	printf("\x1b[11;0H");
+	printf("%s                                  \n", srcpath);
 	
 	FILE* fin = fopen(srcpath, "rb");
 	fseek(fin, 0, SEEK_END);
@@ -95,9 +94,6 @@ void dumpsubdir(char* srcpath, char* dstpath)
 	pdir = opendir(srcpath);
 	if (!pdir) return;
 	
-	//printf("\x1b[11;0H");
-	//printf("%s                                  \n", srcpath);
-	
 	mkdir(dstpath, 0777);
 
 	while ((pent = readdir(pdir)) != NULL) 
@@ -125,9 +121,6 @@ void dumpdir(char* srcpath, char* dstpath)
 
 	pdir = opendir(srcpath);
 	if (!pdir) return;
-	
-	//printf("\x1b[10;0H");
-	//printf("%s                                  \n", srcpath);
 	
 	sprintf(str2, "%s:/%s", outmedia==0 ? "sd" : "usb", dstpath);
 	mkdir(str2, 0777);
@@ -216,6 +209,7 @@ int main(int argc, char **argv)
 				printf("Failed to mount the disc\n");
 				goto error;
 			}
+			printf("\x1b[10;0H");
 			printf("Disc successfully mounted, now dumping\n");
 			
 			char str[256];
@@ -231,6 +225,9 @@ int main(int argc, char **argv)
 			dumpdir("fst:/1/EuGerman", "SMGFiles/EuGerman");
 			dumpdir("fst:/1/EuItalian", "SMGFiles/EuItalian");
 			dumpdir("fst:/1/EuSpanish", "SMGFiles/EuSpanish");
+			
+			printf("\x1b[10;0H");
+			printf("Dump successful!\n                                                                                              ");
 		}
 		else if (pressed & WPAD_BUTTON_2)
 		{
@@ -239,10 +236,14 @@ int main(int argc, char **argv)
 				printf("Failed to mount the disc\n");
 				goto error;
 			}
+			printf("\x1b[10;0H");
 			printf("Disc successfully mounted, now dumping\n");
 			
 			dumpdir("fst:/1", "SMGFiles");
 			dumpdir("fst:/1_metadata", "SMGFiles");
+			
+			printf("\x1b[10;0H");
+			printf("Dump successful!\n                                                                                              ");
 		}
 		else if (pressed & WPAD_BUTTON_A)
 		{
