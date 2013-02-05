@@ -83,6 +83,7 @@ static DIR_ENTRY *current = NULL;
 static PARTITION *partitions = NULL;
 static u64 last_access = 0;
 static s32 dotab_device = -1;
+static u32 last_partition = 0;
 
 static u8 aescache[PLAINTEXT_CLUSTER_SIZE] __attribute__((aligned(32)));
 static u64 aescache_start = 0;
@@ -163,6 +164,14 @@ static int _FST_open_r(struct _reent *r, void *fileStruct, const char *path, int
     file->entry = entry;
     file->offset = 0;
     file->inUse = true;
+	
+	PARTITION *partition = partitions + file->entry->partition;
+	if (last_partition != partition->offset)
+	{
+		DI_ClosePartition();
+		last_partition = partition->offset;
+		DI_OpenPartition(last_partition);
+	}
 
     return (int)file;
 }
@@ -181,7 +190,8 @@ static int _read(void *ptr, u64 offset, u32 len) {
     u32 sector = offset / SECTOR_SIZE;
     u32 sector_offset = offset % SECTOR_SIZE;
     len = MIN(BUFFER_SIZE - sector_offset, len);
-    if (DI_ReadDVD(read_buffer, BUFFER_SIZE / SECTOR_SIZE, sector)) {
+    //if (DI_ReadDVD(read_buffer, BUFFER_SIZE / SECTOR_SIZE, sector)) {
+	if (DI_Read(read_buffer, BUFFER_SIZE, offset >> 2LL)) {
         last_access = gettime();
         return -1;
     }
@@ -237,7 +247,7 @@ static int _FST_read_r(struct _reent *r, int fd, char *ptr, size_t len) {
 
     PARTITION *partition = partitions + file->entry->partition;
     if (file->entry->flags & FLAG_RAW) {
-        u64 offset = (partition->offset << 2LL) + (file->entry->offset << 2LL) + file->offset;
+        u64 offset = /*(partition->offset << 2LL) +*/ (file->entry->offset << 2LL) + file->offset;
         len = _read(ptr, offset, len);
         if (len < 0) {
             r->_errno = EIO;
@@ -248,7 +258,7 @@ static int _FST_read_r(struct _reent *r, int fd, char *ptr, size_t len) {
         u64 cluster_offset_from_data = (offset_from_data / ENCRYPTED_CLUSTER_SIZE) * ENCRYPTED_CLUSTER_SIZE;
         u32 offset_from_cluster = offset_from_data % ENCRYPTED_CLUSTER_SIZE;
         len = MIN(ENCRYPTED_CLUSTER_SIZE - offset_from_cluster, len);
-        u64 data_offset = (partition->offset << 2LL) + (partition->partition_info.data_offset << 2LL);
+        u64 data_offset = /*(partition->offset << 2LL) +*/ (partition->partition_info.data_offset << 2LL);
         if (!read_and_decrypt_cluster(partition->key, cluster_buffer, data_offset + cluster_offset_from_data, offset_from_cluster, len)) {
             r->_errno = EIO;
             return -1;
@@ -529,7 +539,7 @@ static bool read_partition(DIR_ENTRY *partition) {
 
 static bool read_title_key(PARTITION *partition) {
     tik ticket;
-    if (_read(&ticket, (partition->offset << 2) + sizeof(sig_rsa2048), sizeof(tik)) != sizeof(tik)) return false;
+    if (_read(&ticket, /*(partition->offset << 2) +*/ sizeof(sig_rsa2048), sizeof(tik)) != sizeof(tik)) return false;
     u8 iv[16];
     bzero(iv, 16);
     memcpy(iv, &ticket.titleid, sizeof(ticket.titleid));
@@ -543,7 +553,7 @@ static bool read_title_key(PARTITION *partition) {
 }
 
 static bool read_partition_info(PARTITION *partition) {
-    return _read(&partition->partition_info, (partition->offset << 2LL) + sizeof(sig_rsa2048) + sizeof(tik), sizeof(partition->partition_info)) == sizeof(partition->partition_info);
+    return _read(&partition->partition_info, /*(partition->offset << 2LL) +*/ sizeof(sig_rsa2048) + sizeof(tik), sizeof(partition->partition_info)) == sizeof(partition->partition_info);
 }
 
 static bool add_ticket_entry(DIR_ENTRY *parent) {
@@ -557,7 +567,7 @@ static bool add_ticket_entry(DIR_ENTRY *parent) {
 static bool add_tmd_entry(DIR_ENTRY *parent) {
     PARTITION *partition = partitions + parent->partition;
     tmd partition_tmd;
-    if (_read(&partition_tmd, (partition->offset << 2LL) + (partition->partition_info.tmd_offset << 2LL) + sizeof(sig_rsa2048), sizeof(tmd)) != sizeof(tmd)) return false;
+    if (_read(&partition_tmd,/* (partition->offset << 2LL) +*/ (partition->partition_info.tmd_offset << 2LL) + sizeof(sig_rsa2048), sizeof(tmd)) != sizeof(tmd)) return false;
     DIR_ENTRY *entry = add_child_entry(parent, "TMD");
     if (!entry) return false;
     entry->size = sizeof(sig_rsa2048) + TMD_SIZE(&partition_tmd);
@@ -662,7 +672,9 @@ static bool read_disc() {
         if (count > 0) {
             PARTITION_ENTRY entries[count];
             u32 table_size = sizeof(PARTITION_ENTRY) * count;
-            if (_read(entries, (u64)tables[table_index].table_offset << 2, table_size) != table_size) return false;
+            //if (_read(entries, (u64)tables[table_index].table_offset << 2, table_size) != table_size) return false;
+			if (DI_ReadDVD(read_buffer, 1, tables[table_index].table_offset >> 9)) return false;
+			memcpy(entries, read_buffer + ((tables[table_index].table_offset & 0x1FF) << 2), table_size);
             u32 partition_index;
             for (partition_index = 0; partition_index < count; partition_index++) {
                 PARTITION *newPartitions = realloc(partitions, sizeof(PARTITION) * (partition_count + 1));
@@ -718,12 +730,21 @@ static void cleanup_recursive(DIR_ENTRY *entry) {
 bool FST_Mount() {
     FST_Unmount();
     bool success = read_disc() && (dotab_device = AddDevice(&dotab_fst)) >= 0;
-    if (success) last_access = gettime();
+    if (success) 
+	{
+		last_access = gettime();
+		last_partition = 0;
+	}
     else FST_Unmount();
     return success;
 }
 
 bool FST_Unmount() {
+	if (last_partition)
+	{
+		DI_ClosePartition();
+		last_partition = 0;
+	}
     if (root) {
         cleanup_recursive(root);
         free(root);

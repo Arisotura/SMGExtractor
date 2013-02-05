@@ -59,6 +59,10 @@ void deinitdisc()
 
 void dumpfile(char* srcpath, char* dstpath)
 {
+	//printf("\x1b[12;0H");
+	//printf("%s                                  \n", srcpath);
+	printf("%s\n", srcpath);
+	
 	FILE* fin = fopen(srcpath, "rb");
 	fseek(fin, 0, SEEK_END);
 	int len = ftell(fin);
@@ -91,6 +95,9 @@ void dumpsubdir(char* srcpath, char* dstpath)
 	pdir = opendir(srcpath);
 	if (!pdir) return;
 	
+	//printf("\x1b[11;0H");
+	//printf("%s                                  \n", srcpath);
+	
 	mkdir(dstpath, 0777);
 
 	while ((pent = readdir(pdir)) != NULL) 
@@ -110,7 +117,7 @@ void dumpsubdir(char* srcpath, char* dstpath)
 	closedir(pdir);
 }
 
-void dumpdir(char* srcpath, char* dstpath, bool hax)
+void dumpdir(char* srcpath, char* dstpath)
 {
 	DIR *pdir;
 	struct dirent *pent;
@@ -119,7 +126,8 @@ void dumpdir(char* srcpath, char* dstpath, bool hax)
 	pdir = opendir(srcpath);
 	if (!pdir) return;
 	
-	printf("%s\n", srcpath);
+	//printf("\x1b[10;0H");
+	//printf("%s                                  \n", srcpath);
 	
 	sprintf(str2, "%s:/%s", outmedia==0 ? "sd" : "usb", dstpath);
 	mkdir(str2, 0777);
@@ -133,15 +141,7 @@ void dumpdir(char* srcpath, char* dstpath, bool hax)
 		sprintf(str2, "%s:/%s/%s", outmedia==0 ? "sd" : "usb", dstpath, pent->d_name);
 		
 		if(pent->d_type & DT_DIR)
-		{
-			if (hax)
-			{
-				sprintf(str2, "%s/%s", dstpath, pent->d_name);
-				dumpdir(str1, str2, false);
-			}
-			else
-				dumpsubdir(str1, str2);
-		}
+			dumpsubdir(str1, str2);
 		else
 			dumpfile(str1, str2);
 	}
@@ -216,24 +216,21 @@ int main(int argc, char **argv)
 				printf("Failed to mount the disc\n");
 				goto error;
 			}
-			
-			mkdir("sd:/loltest", 0777);
+			printf("Disc successfully mounted, now dumping\n");
 			
 			char str[256];
 			sprintf(str, "%s:/SMGFiles", outmedia==0 ? "sd" : "usb");
 			mkdir(str, 0777);
 			
-			mkdir("sd:/durr", 0777);
-			
-			dumpdir("fst:/1/ObjectData", "SMGFiles/ObjectData", false);
-			dumpdir("fst:/1/StageData", "SMGFiles/StageData", false);
-			dumpdir("fst:/1/LocalizeData", "SMGFiles/LocalizeData", false);
-			dumpdir("fst:/1/EuDutch", "SMGFiles/EuDutch", false);
-			dumpdir("fst:/1/EuEnglish", "SMGFiles/EuEnglish", false);
-			dumpdir("fst:/1/EuFrench", "SMGFiles/EuFrench", false);
-			dumpdir("fst:/1/EuGerman", "SMGFiles/EuGerman", false);
-			dumpdir("fst:/1/EuItalian", "SMGFiles/EuItalian", false);
-			dumpdir("fst:/1/EuSpanish", "SMGFiles/EuSpanish", false);
+			dumpdir("fst:/1/ObjectData", "SMGFiles/ObjectData");
+			dumpdir("fst:/1/StageData", "SMGFiles/StageData");
+			dumpdir("fst:/1/LocalizeData", "SMGFiles/LocalizeData");
+			dumpdir("fst:/1/EuDutch", "SMGFiles/EuDutch");
+			dumpdir("fst:/1/EuEnglish", "SMGFiles/EuEnglish");
+			dumpdir("fst:/1/EuFrench", "SMGFiles/EuFrench");
+			dumpdir("fst:/1/EuGerman", "SMGFiles/EuGerman");
+			dumpdir("fst:/1/EuItalian", "SMGFiles/EuItalian");
+			dumpdir("fst:/1/EuSpanish", "SMGFiles/EuSpanish");
 		}
 		else if (pressed & WPAD_BUTTON_2)
 		{
@@ -242,9 +239,10 @@ int main(int argc, char **argv)
 				printf("Failed to mount the disc\n");
 				goto error;
 			}
+			printf("Disc successfully mounted, now dumping\n");
 			
-			dumpdir("fst:/1", "SMGFiles", true);
-			dumpdir("fst:/1_metadata", "SMGFiles", true);
+			dumpdir("fst:/1", "SMGFiles");
+			dumpdir("fst:/1_metadata", "SMGFiles");
 		}
 		else if (pressed & WPAD_BUTTON_A)
 		{
